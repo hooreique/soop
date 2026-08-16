@@ -5,6 +5,7 @@
   bashNonInteractive,
   coreutils,
   util-linux,
+  jq,
   chromium,
   soopGrid,
 }:
@@ -45,6 +46,7 @@ let
   runtimePath = lib.makeBinPath [
     coreutils
     util-linux
+    jq
   ];
 in
 stdenvNoCC.mkDerivation {

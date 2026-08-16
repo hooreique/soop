@@ -46,6 +46,10 @@ Chromium에는 background mode를 끄는 옵션을 적용한다. wrapper는 Chro
 `wineserver`가 끝날 때까지 기다린다. Linux 자동 시작 항목이나 systemd
 서비스는 만들지 않으므로 앱이 닫힌 뒤 상시 SOOP 데몬은 남지 않는다.
 
+wrapper는 Chromium을 시작하기 전에 `www.sooplive.com`과
+`play.sooplive.com`의 localhost 접근 권한을 전용 프로필에 허용한다. 따라서
+SOOP 그리드 감지에 필요한 브라우저 권한 팝업을 별도로 처리하지 않아도 된다.
+
 `soop-grid`도 foreground supervisor로 동작한다. 터미널의 `Ctrl-C`, 데스크톱
 세션 종료 또는 벤더 트레이의 종료 동작으로 wrapper가 끝나면 해당 Wine
 프로세스를 모두 정리한다. 통합 앱과 그리드 전용 앱은 동시에 실행할 수 없다.
@@ -97,7 +101,5 @@ $ nix store prefetch-file --json \
 - `21201`은 고정 bootstrap 포트지만 실제 시청 작업자의 포트는 동적이다.
 - SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한 복사본에
   적용된다.
-- Chromium의 로컬 네트워크 접근 정책이 localhost 연결을 차단하면 SOOP에
-  로컬 네트워크 권한을 허용해야 한다.
 - 실제 방송의 1080p 재생 여부는 방송 상태, 지역 정책, 최신 플레이어와 벤더
   서비스 응답에 영향을 받으므로 빌드 과정에서 자동 시험하지 않는다.

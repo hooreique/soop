@@ -48,6 +48,29 @@ if ! flock -n 8; then
   exit 0
 fi
 
+preferences_dir="$profile_dir/Default"
+preferences_file="$preferences_dir/Preferences"
+mkdir -p "$preferences_dir"
+preferences_tmp="$(mktemp "$preferences_dir/.Preferences.XXXXXX")"
+
+if [[ -f "$preferences_file" ]]; then
+  jq '
+    .profile.content_settings.exceptions.loopback_network["https://play.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.loopback_network["https://www.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.local_network_access["https://play.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.local_network_access["https://www.sooplive.com:443,*"].setting = 1
+  ' "$preferences_file" >"$preferences_tmp"
+else
+  jq -n '
+    .profile.content_settings.exceptions.loopback_network["https://play.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.loopback_network["https://www.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.local_network_access["https://play.sooplive.com:443,*"].setting = 1 |
+    .profile.content_settings.exceptions.local_network_access["https://www.sooplive.com:443,*"].setting = 1
+  ' >"$preferences_tmp"
+fi
+chmod 0600 "$preferences_tmp"
+mv -f "$preferences_tmp" "$preferences_file"
+
 if "$GRID_BIN" --status >/dev/null 2>&1; then
   printf 'soop: a standalone SOOP grid session is already running.\n' >&2
   exit 1
