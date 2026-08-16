@@ -167,7 +167,7 @@ run_browser() {
     --disk-cache-dir="$cache_dir" \
     --app="$SITE_URL" \
     --class=SOOP \
-    --window-size=1440,720 \
+    --window-size=1610,720 \
     --accept-lang=ko-KR,ko,en-US,en \
     --lang=ko \
     --disable-background-mode \
