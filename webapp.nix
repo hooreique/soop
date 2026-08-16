@@ -60,23 +60,17 @@ stdenvNoCC.mkDerivation {
     install -d \
       "$out/bin" \
       "$out/share/applications" \
-      "$out/share/licenses/soop" \
-      "$out/share/soop/same-window-extension"
+      "$out/share/licenses/soop"
 
     ${installIcons}
     ln -s ${soopGrid}/share/licenses/soop-grid/license.txt \
       "$out/share/licenses/soop/license.txt"
     install -m 0444 ${desktopFile} "$out/share/applications/soop.desktop"
-    install -m 0444 ${./extension/manifest.json} \
-      "$out/share/soop/same-window-extension/manifest.json"
-    install -m 0444 ${./extension/same-window.js} \
-      "$out/share/soop/same-window-extension/same-window.js"
     substitute ${./soop.sh} "$out/bin/soop" \
       --subst-var-by bash ${lib.getExe bashNonInteractive} \
       --subst-var-by runtimePath ${runtimePath} \
       --subst-var-by gridBin ${lib.getExe soopGrid} \
-      --subst-var-by chromiumBin ${lib.getExe chromium} \
-      --subst-var-by extensionDir "$out/share/soop/same-window-extension"
+      --subst-var-by chromiumBin ${lib.getExe chromium}
     chmod 0555 "$out/bin/soop"
 
     runHook postInstall

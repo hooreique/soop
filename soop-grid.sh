@@ -80,12 +80,9 @@ data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
 soop_root="$data_home/soop"
 data_root="$soop_root/grid"
-legacy_data_root="$data_home/soop-grid"
 app_dir="$data_root/app"
 prefix="$data_root/wineprefix"
-legacy_prefix="$legacy_data_root/wineprefix"
 state_root="$state_home/soop/grid"
-legacy_state_root="$state_home/soop-grid"
 log_file="$state_root/agent.log"
 runtime_root="${XDG_RUNTIME_DIR:-$soop_root/runtime}/soop"
 lock_file="$runtime_root/grid.lock"
@@ -99,64 +96,27 @@ export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}mfc71,mfc71u,msv
 umask 077
 mkdir -p "$runtime_root"
 
-stop_prefix() {
-  local target_prefix="$1"
-
-  if [[ ! -d "$target_prefix" ]]; then
+stop_wine() {
+  if [[ ! -d "$prefix" ]]; then
     return 0
   fi
-  WINEPREFIX="$target_prefix" wineserver -k >/dev/null 2>&1 || true
-  WINEPREFIX="$target_prefix" timeout 10 wineserver -w >/dev/null 2>&1
-}
-
-stop_all_wine() {
-  local stop_status=0
-
-  stop_prefix "$prefix" || stop_status=1
-  if [[ "$legacy_prefix" != "$prefix" ]]; then
-    stop_prefix "$legacy_prefix" || stop_status=1
-  fi
-  return "$stop_status"
-}
-
-migrate_legacy_data() {
-  if [[ ! -e "$data_root" && -d "$legacy_data_root" ]]; then
-    mkdir -p "$soop_root"
-    mv "$legacy_data_root" "$data_root"
-  fi
-  if [[ ! -e "$state_root" && -d "$legacy_state_root" ]]; then
-    mkdir -p "$state_home/soop"
-    mv "$legacy_state_root" "$state_root"
-  fi
-}
-
-lock_legacy_launcher() {
-  if [[ ! -d "$legacy_data_root" ]]; then
-    return 0
-  fi
-
-  exec 10>"$legacy_data_root/launch.lock"
-  flock -w 30 10
+  wineserver -k >/dev/null 2>&1 || true
+  timeout 10 wineserver -w >/dev/null 2>&1
 }
 
 if [[ "$mode" == stop ]]; then
   exec 9>"$lock_file"
   if ! flock -n 9; then
     : >"$stop_request"
-    stop_all_wine || true
+    stop_wine || true
     if ! flock -w 20 9; then
       printf 'soop-grid: timed out waiting for the active session to stop.\n' >&2
       exit 1
     fi
   fi
 
-  if ! lock_legacy_launcher; then
-    printf 'soop-grid: timed out waiting for the legacy launcher.\n' >&2
-    rm -f "$stop_request"
-    exit 1
-  fi
   stop_status=0
-  stop_all_wine || stop_status=1
+  stop_wine || stop_status=1
   rm -f "$stop_request"
   if agent_running; then
     printf 'soop-grid: port %d is still in use by another process.\n' \
@@ -167,7 +127,6 @@ if [[ "$mode" == stop ]]; then
     printf 'soop-grid: Wine processes did not stop within the timeout.\n' >&2
     exit 1
   fi
-  migrate_legacy_data
   printf 'SOOP grid agent is stopped.\n'
   exit 0
 fi
@@ -184,27 +143,6 @@ if agent_running; then
   exit 1
 fi
 
-if [[ ! -e "$data_root" && -d "$legacy_data_root" ]]; then
-  if ! lock_legacy_launcher; then
-    printf 'soop-grid: timed out waiting for the legacy launcher.\n' >&2
-    exit 1
-  fi
-  if agent_running; then
-    printf 'soop-grid: the legacy grid agent became active on port %d.\n' \
-      "$CONTROL_PORT" >&2
-    exit 1
-  fi
-  if ! stop_prefix "$legacy_prefix"; then
-    printf 'soop-grid: the legacy Wine prefix did not stop; migration aborted.\n' >&2
-    exit 1
-  fi
-  if agent_running; then
-    printf 'soop-grid: port %d became active during migration.\n' \
-      "$CONTROL_PORT" >&2
-    exit 1
-  fi
-fi
-migrate_legacy_data
 mkdir -p "$data_root" "$state_root"
 
 wine_pid=""
@@ -218,7 +156,7 @@ cleanup() {
   fi
 
   printf 'Stopping the SOOP grid agent...\n'
-  stop_prefix "$prefix" || true
+  stop_wine || true
   if [[ -n "$wine_pid" ]]; then
     for _ in {1..100}; do
       if [[ "$(jobs -pr)" != "$wine_pid" ]]; then
@@ -231,7 +169,7 @@ cleanup() {
     fi
     wait "$wine_pid" 2>/dev/null || true
   fi
-  if ! stop_prefix "$prefix"; then
+  if ! stop_wine; then
     printf 'soop-grid: Wine processes did not stop within the timeout.\n' >&2
     exit_status=1
   fi
