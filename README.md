@@ -46,6 +46,10 @@ Chromium에는 background mode를 끄는 옵션을 적용한다. wrapper는 Chro
 `wineserver`가 끝날 때까지 기다린다. Linux 자동 시작 항목이나 systemd
 서비스는 만들지 않으므로 앱이 닫힌 뒤 상시 SOOP 데몬은 남지 않는다.
 
+통합 앱에 포함된 로컬 Chromium 확장은 SOOP 페이지의 새 창 링크와
+`window.open()` 탐색을 현재 앱 창에서 연다. 파일 다운로드와 URL 없는 팝업은
+사이트의 원래 동작을 유지한다.
+
 `soop-grid`도 foreground supervisor로 동작한다. 터미널의 `Ctrl-C`, 데스크톱
 세션 종료 또는 벤더 트레이의 종료 동작으로 wrapper가 끝나면 해당 Wine
 프로세스를 모두 정리한다. 통합 앱과 그리드 전용 앱은 동시에 실행할 수 없다.

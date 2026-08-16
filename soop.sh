@@ -6,6 +6,7 @@ export PATH="@runtimePath@${PATH:+:$PATH}"
 readonly SITE_URL="https://www.sooplive.com/"
 readonly GRID_BIN="@gridBin@"
 readonly CHROMIUM_BIN="@chromiumBin@"
+readonly EXTENSION_DIR="@extensionDir@"
 
 usage() {
   cat <<'EOF'
@@ -144,6 +145,8 @@ run_browser() {
     --app="$SITE_URL" \
     --class=SOOP \
     --disable-background-mode \
+    --disable-extensions-except="$EXTENSION_DIR" \
+    --load-extension="$EXTENSION_DIR" \
     --no-first-run \
     --no-default-browser-check \
     8>&- &
