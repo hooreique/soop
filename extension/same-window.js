@@ -24,10 +24,50 @@
     return nativeOpen.call(window, url, target, features);
   };
 
+  const normalizeLink = (anchor) => {
+    anchor.removeAttribute("target");
+    anchor.removeAttribute("rel");
+  };
+
+  const normalizeLinks = (root) => {
+    if (root instanceof HTMLAnchorElement) {
+      normalizeLink(root);
+    }
+    for (const anchor of root.querySelectorAll?.("a") ?? []) {
+      normalizeLink(anchor);
+    }
+  };
+
+  normalizeLinks(document);
+
+  const observer = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes") {
+        if (mutation.target instanceof HTMLAnchorElement) {
+          normalizeLink(mutation.target);
+        }
+        continue;
+      }
+
+      for (const node of mutation.addedNodes) {
+        if (node instanceof Element) {
+          normalizeLinks(node);
+        }
+      }
+    }
+  });
+
+  observer.observe(document, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["target", "rel"],
+  });
+
   window.addEventListener(
     "click",
     (event) => {
-      if (event.defaultPrevented || event.button !== 0) {
+      if (event.button !== 0) {
         return;
       }
 
@@ -39,16 +79,15 @@
 
       if (
         !anchor ||
-        target.toLowerCase() !== "_blank" ||
         anchor.hasAttribute("download") ||
-        !anchor.href
+        !target ||
+        target.toLowerCase() === "_self"
       ) {
         return;
       }
 
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      window.location.assign(anchor.href);
+      anchor.target = "_self";
+      anchor.removeAttribute("rel");
     },
     true,
   );
