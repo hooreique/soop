@@ -4,6 +4,7 @@ set -euo pipefail
 export PATH="@runtimePath@${PATH:+:$PATH}"
 
 readonly CONTROL_PORT=21201
+readonly RESTART_GRACE_TICKS=240
 readonly PAYLOAD_DIR="@payloadDir@"
 readonly RUNTIME_DIR="@runtimeDir@"
 readonly SEED_VERSION="@seedVersion@"
@@ -284,9 +285,17 @@ if [[ -n "$ready_file" ]]; then
 fi
 printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
 
-while agent_running; do
+missing_ticks=0
+while ((missing_ticks < RESTART_GRACE_TICKS)); do
   if session_should_stop; then
     break
+  fi
+
+  # The vendor updater briefly replaces SOOPPackage.exe and its listening socket.
+  if agent_running; then
+    missing_ticks=0
+  else
+    ((missing_ticks += 1))
   fi
   sleep 0.25
 done
