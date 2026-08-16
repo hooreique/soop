@@ -71,6 +71,8 @@ stdenvNoCC.mkDerivation {
     install -m 0444 ${desktopFile} "$out/share/applications/soop.desktop"
     install -m 0444 ${./extension/manifest.json} \
       "$out/share/soop/same-window-extension/manifest.json"
+    install -m 0444 ${./extension/restore-close-shortcut.js} \
+      "$out/share/soop/same-window-extension/restore-close-shortcut.js"
     install -m 0444 ${./extension/same-window-links.js} \
       "$out/share/soop/same-window-extension/same-window-links.js"
     install -m 0444 ${./extension/same-window-open.js} \

@@ -1,9 +1,20 @@
 {
   "manifest_version": 3,
-  "name": "SOOP Same-Window Navigation",
-  "version": "1.0.0",
-  "description": "Keeps SOOP navigation in the dedicated app window.",
+  "name": "SOOP App Integration",
+  "version": "1.1.0",
+  "description": "Integrates SOOP navigation and browser shortcuts with the dedicated app window.",
   "content_scripts": [
+    {
+      "matches": [
+        "*://*.sooplive.com/*",
+        "*://*.sooplive.co.kr/*"
+      ],
+      "js": ["restore-close-shortcut.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "world": "MAIN"
+    },
     {
       "matches": [
         "*://*.sooplive.com/*",
