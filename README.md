@@ -50,6 +50,10 @@ wrapper는 Chromium을 시작하기 전에 `www.sooplive.com`과
 `play.sooplive.com`의 localhost 접근 권한을 전용 프로필에 허용한다. 따라서
 SOOP 그리드 감지에 필요한 브라우저 권한 팝업을 별도로 처리하지 않아도 된다.
 
+통합 앱은 로컬 Chromium 확장을 함께 로드한다. SOOP 페이지에서 일반 클릭이나
+`window.open()`이 새 창을 요청하면 현재 앱 창에서 이동하며, 사용자가 보조 키와
+함께 클릭한 경우와 다운로드, URL 없는 팝업은 원래 동작을 유지한다.
+
 `soop-grid`도 foreground supervisor로 동작한다. 터미널의 `Ctrl-C`, 데스크톱
 세션 종료 또는 벤더 트레이의 종료 동작으로 wrapper가 끝나면 해당 Wine
 프로세스를 모두 정리한다. 통합 앱과 그리드 전용 앱은 동시에 실행할 수 없다.

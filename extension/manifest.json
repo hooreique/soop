@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "SOOP Same-Window Navigation",
+  "version": "1.0.0",
+  "description": "Keeps SOOP navigation in the dedicated app window.",
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.sooplive.com/*",
+        "*://*.sooplive.co.kr/*"
+      ],
+      "js": ["same-window-links.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "*://*.sooplive.com/*",
+        "*://*.sooplive.co.kr/*"
+      ],
+      "js": ["same-window-open.js"],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_origin_as_fallback": true,
+      "world": "MAIN"
+    }
+  ]
+}
