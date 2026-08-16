@@ -143,6 +143,8 @@ run_browser() {
     --disk-cache-dir="$cache_dir" \
     --app="$SITE_URL" \
     --class=SOOP \
+    --accept-lang=ko-KR,ko,en-US,en \
+    --lang=ko \
     --disable-background-mode \
     --no-first-run \
     --no-default-browser-check \
