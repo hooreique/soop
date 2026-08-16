@@ -4,18 +4,19 @@ set -euo pipefail
 export PATH="@runtimePath@${PATH:+:$PATH}"
 
 readonly CONTROL_PORT=21201
-readonly SITE_URL="https://www.sooplive.com/"
 readonly PAYLOAD_DIR="@payloadDir@"
 readonly RUNTIME_DIR="@runtimeDir@"
 readonly SEED_VERSION="@seedVersion@"
 
 usage() {
   cat <<'EOF'
-Usage: soop-grid [--open] [--status]
+Usage: soop-grid [--status | --stop] [--parent-pid PID] [--ready-file PATH]
 
-  --open    Open SOOP in the default browser after starting the agent
-  --status  Report whether the control service is listening on port 21201
-  --help    Show this help
+  --status          Report whether the control service is listening on port 21201
+  --stop            Stop every Wine process in the private SOOP prefix
+  --parent-pid PID  Stop when PID exits (used by the integrated SOOP app)
+  --ready-file PATH Write readiness to PATH (used by the integrated SOOP app)
+  --help            Show this help
 EOF
 }
 
@@ -23,22 +24,33 @@ agent_running() {
   [[ -n "$(ss -H -ltn "sport = :$CONTROL_PORT" 2>/dev/null)" ]]
 }
 
-open_site() {
-  if ! setsid --fork xdg-open "$SITE_URL" >/dev/null 2>&1 9>&-; then
-    printf 'soop-grid: could not open %s\n' "$SITE_URL" >&2
-  fi
-}
-
-open_after_start=0
-status_only=0
+mode=run
+parent_pid=""
+ready_file=""
 
 while (($# > 0)); do
   case "$1" in
-    --open)
-      open_after_start=1
-      ;;
     --status)
-      status_only=1
+      mode=status
+      ;;
+    --stop)
+      mode=stop
+      ;;
+    --parent-pid)
+      if (($# < 2)) || [[ ! "$2" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'soop-grid: --parent-pid requires a positive integer\n' >&2
+        exit 2
+      fi
+      parent_pid="$2"
+      shift
+      ;;
+    --ready-file)
+      if (($# < 2)) || [[ "$2" != /* ]]; then
+        printf 'soop-grid: --ready-file requires an absolute path\n' >&2
+        exit 2
+      fi
+      ready_file="$2"
+      shift
       ;;
     --help|-h)
       usage
@@ -53,7 +65,7 @@ while (($# > 0)); do
   shift
 done
 
-if ((status_only)); then
+if [[ "$mode" == status ]]; then
   if agent_running; then
     printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
     exit 0
@@ -62,40 +74,196 @@ if ((status_only)); then
   exit 1
 fi
 
-if agent_running; then
-  printf 'SOOP grid agent is already running on port %d.\n' "$CONTROL_PORT"
-  if ((open_after_start)); then
-    open_site
-  fi
-  exit 0
-fi
-
 : "${HOME:?soop-grid requires HOME to be set}"
 
 data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
 state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
-data_root="$data_home/soop-grid"
+soop_root="$data_home/soop"
+data_root="$soop_root/grid"
+legacy_data_root="$data_home/soop-grid"
 app_dir="$data_root/app"
-export WINEPREFIX="$data_root/wineprefix"
+prefix="$data_root/wineprefix"
+legacy_prefix="$legacy_data_root/wineprefix"
+state_root="$state_home/soop/grid"
+legacy_state_root="$state_home/soop-grid"
+log_file="$state_root/agent.log"
+runtime_root="${XDG_RUNTIME_DIR:-$soop_root/runtime}/soop"
+lock_file="$runtime_root/grid.lock"
+stop_request="$runtime_root/grid.stop"
+
+export WINEPREFIX="$prefix"
 export WINEARCH=win64
 export WINEDEBUG="${WINEDEBUG:--all}"
 export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}mfc71,mfc71u,msvcp71,msvcr71=n;winemenubuilder.exe=d"
 
-state_root="$state_home/soop-grid"
-log_file="$state_root/agent.log"
-
 umask 077
+mkdir -p "$runtime_root"
+
+stop_prefix() {
+  local target_prefix="$1"
+
+  if [[ ! -d "$target_prefix" ]]; then
+    return 0
+  fi
+  WINEPREFIX="$target_prefix" wineserver -k >/dev/null 2>&1 || true
+  WINEPREFIX="$target_prefix" timeout 10 wineserver -w >/dev/null 2>&1
+}
+
+stop_all_wine() {
+  local stop_status=0
+
+  stop_prefix "$prefix" || stop_status=1
+  if [[ "$legacy_prefix" != "$prefix" ]]; then
+    stop_prefix "$legacy_prefix" || stop_status=1
+  fi
+  return "$stop_status"
+}
+
+migrate_legacy_data() {
+  if [[ ! -e "$data_root" && -d "$legacy_data_root" ]]; then
+    mkdir -p "$soop_root"
+    mv "$legacy_data_root" "$data_root"
+  fi
+  if [[ ! -e "$state_root" && -d "$legacy_state_root" ]]; then
+    mkdir -p "$state_home/soop"
+    mv "$legacy_state_root" "$state_root"
+  fi
+}
+
+lock_legacy_launcher() {
+  if [[ ! -d "$legacy_data_root" ]]; then
+    return 0
+  fi
+
+  exec 10>"$legacy_data_root/launch.lock"
+  flock -w 30 10
+}
+
+if [[ "$mode" == stop ]]; then
+  exec 9>"$lock_file"
+  if ! flock -n 9; then
+    : >"$stop_request"
+    stop_all_wine || true
+    if ! flock -w 20 9; then
+      printf 'soop-grid: timed out waiting for the active session to stop.\n' >&2
+      exit 1
+    fi
+  fi
+
+  if ! lock_legacy_launcher; then
+    printf 'soop-grid: timed out waiting for the legacy launcher.\n' >&2
+    rm -f "$stop_request"
+    exit 1
+  fi
+  stop_status=0
+  stop_all_wine || stop_status=1
+  rm -f "$stop_request"
+  if agent_running; then
+    printf 'soop-grid: port %d is still in use by another process.\n' \
+      "$CONTROL_PORT" >&2
+    exit 1
+  fi
+  if ((stop_status)); then
+    printf 'soop-grid: Wine processes did not stop within the timeout.\n' >&2
+    exit 1
+  fi
+  migrate_legacy_data
+  printf 'SOOP grid agent is stopped.\n'
+  exit 0
+fi
+
+exec 9>"$lock_file"
+if ! flock -n 9; then
+  printf 'soop-grid: another SOOP session is already active.\n' >&2
+  exit 3
+fi
+rm -f "$stop_request"
+
+if agent_running; then
+  printf 'soop-grid: port %d is already in use.\n' "$CONTROL_PORT" >&2
+  exit 1
+fi
+
+if [[ ! -e "$data_root" && -d "$legacy_data_root" ]]; then
+  if ! lock_legacy_launcher; then
+    printf 'soop-grid: timed out waiting for the legacy launcher.\n' >&2
+    exit 1
+  fi
+  if agent_running; then
+    printf 'soop-grid: the legacy grid agent became active on port %d.\n' \
+      "$CONTROL_PORT" >&2
+    exit 1
+  fi
+  if ! stop_prefix "$legacy_prefix"; then
+    printf 'soop-grid: the legacy Wine prefix did not stop; migration aborted.\n' >&2
+    exit 1
+  fi
+  if agent_running; then
+    printf 'soop-grid: port %d became active during migration.\n' \
+      "$CONTROL_PORT" >&2
+    exit 1
+  fi
+fi
+migrate_legacy_data
 mkdir -p "$data_root" "$state_root"
 
-exec 9>"$data_root/launch.lock"
-flock 9
+wine_pid=""
 
-# Another invocation may have completed while this one waited for the lock.
-if agent_running; then
-  printf 'SOOP grid agent is already running on port %d.\n' "$CONTROL_PORT"
-  if ((open_after_start)); then
-    open_site
+cleanup() {
+  local exit_status=$?
+  trap - EXIT INT TERM HUP
+
+  if [[ -n "$ready_file" ]]; then
+    rm -f "$ready_file"
   fi
+
+  printf 'Stopping the SOOP grid agent...\n'
+  stop_prefix "$prefix" || true
+  if [[ -n "$wine_pid" ]]; then
+    for _ in {1..100}; do
+      if [[ "$(jobs -pr)" != "$wine_pid" ]]; then
+        break
+      fi
+      sleep 0.05
+    done
+    if [[ "$(jobs -pr)" == "$wine_pid" ]]; then
+      kill -KILL "$wine_pid" 2>/dev/null || true
+    fi
+    wait "$wine_pid" 2>/dev/null || true
+  fi
+  if ! stop_prefix "$prefix"; then
+    printf 'soop-grid: Wine processes did not stop within the timeout.\n' >&2
+    exit_status=1
+  fi
+
+  for _ in {1..100}; do
+    if ! agent_running; then
+      break
+    fi
+    sleep 0.05
+  done
+  if agent_running; then
+    printf 'soop-grid: port %d did not close cleanly.\n' "$CONTROL_PORT" >&2
+    exit_status=1
+  fi
+
+  exit "$exit_status"
+}
+
+trap cleanup EXIT
+trap 'exit 0' INT TERM HUP
+
+session_should_stop() {
+  if [[ -e "$stop_request" ]]; then
+    return 0
+  fi
+  if [[ -n "$parent_pid" ]] && ! kill -0 "$parent_pid" 2>/dev/null; then
+    return 0
+  fi
+  return 1
+}
+
+if session_should_stop; then
   exit 0
 fi
 
@@ -135,19 +303,34 @@ for runtime_file in mfc71.dll mfc71u.dll msvcp71.dll msvcr71.dll; do
   fi
 done
 
+if session_should_stop; then
+  exit 0
+fi
+
 # Keep the vendor updater in the writable XDG application directory.
 windows_app_dir="$(winepath -w "$app_dir" 2>>"$log_file")"
 wine reg add 'HKCU\Software\SOOP\Updater2' \
   /v Path /t REG_SZ /d "$windows_app_dir" /f >>"$log_file" 2>&1
 
+if session_should_stop; then
+  exit 0
+fi
+
 printf 'Starting the SOOP grid agent...\n'
-setsid --fork wine "$app_dir/SOOPPackage.exe" >>"$log_file" 2>&1 9>&-
+wine "$app_dir/SOOPPackage.exe" >>"$log_file" 2>&1 9>&- &
+wine_pid=$!
 
 started=0
-for _ in {1..200}; do
+for _ in {1..300}; do
   if agent_running; then
     started=1
     break
+  fi
+  if [[ "$(jobs -pr)" != "$wine_pid" ]]; then
+    break
+  fi
+  if session_should_stop; then
+    exit 0
   fi
   sleep 0.1
 done
@@ -158,7 +341,14 @@ if ((!started)); then
   exit 1
 fi
 
-printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
-if ((open_after_start)); then
-  open_site
+if [[ -n "$ready_file" ]]; then
+  printf '%s\n' "$$" >"$ready_file"
 fi
+printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
+
+while agent_running; do
+  if session_should_stop; then
+    break
+  fi
+  sleep 0.25
+done

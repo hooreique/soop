@@ -1,39 +1,73 @@
-# SOOP Grid for NixOS
+# SOOP for NixOS
 
-SOOP의 Windows용 시청자 그리드 에이전트를 전용 Wine 환경에서 실행하는
-로컬 Nix flake다. 웹사이트를 Chromium 앱 모드로 감싸는 대신 공식
-`SOOPPackage.exe`를 실행한다. 이 프로세스가 브라우저 감지용 WebSocket을
-`21201` 포트에 열고, 재생 세션이 생기면 `SOOPStreamer.exe` 작업자를 실행한다.
+SOOP의 Windows용 시청자 그리드 에이전트와 Chromium 웹 앱을 함께 실행하는
+로컬 Nix flake다. 기본 앱은 먼저 공식 `SOOPPackage.exe`를 준비해 브라우저
+감지용 WebSocket을 `21201` 포트에 열고, 전용 Chromium 프로필로
+`sooplive.com`을 표시한다. 재생 세션이 생기면 `SOOPPackage.exe`가
+`SOOPStreamer.exe` P2P 작업자를 실행한다.
 
 ## 사용법
 
 ```console
-$ nix run .
-$ nix run . -- --open       # 에이전트 실행 후 기본 브라우저 열기
-$ nix run . -- --status
+$ nix run .                 # 통합 SOOP 앱
+$ nix run .#soop            # 위와 동일
+$ nix run .#soop-grid       # 그리드 에이전트만 foreground로 실행
+$ nix run .#soop-grid -- --status
+$ nix run .#soop-grid -- --stop
 $ nix build .
-$ nix profile install .
+$ nix build .#soop-grid
 ```
 
-설치 후 실행 파일은 `soop-grid`, GNOME 앱 목록의 이름은 `SOOP Grid`다.
-데스크톱 항목은 에이전트를 시작한 뒤 기본 브라우저로 SOOP을 연다.
+`nix profile install .`은 `soop` 실행 파일과 `SOOP` 데스크톱 항목을 설치한다.
+그리드만 따로 사용하려면 `nix profile install .#soop-grid`를 실행한다. 이 경우
+`soop-grid` 실행 파일과 `SOOP Grid` 데스크톱 항목이 추가된다.
 
 flake는 비자유 SOOP 바이너리를 사용하므로 내부 nixpkgs import에
 `allowUnfree = true`를 명시한다. 다른 flake에서 패키지를 직접 다시 구성하면
 그 nixpkgs 인스턴스에도 비자유 패키지 허용 설정이 필요하다.
 
+## 수명주기
+
+통합 앱은 단일 인스턴스다. `soop`이 실행 중일 때 다시 실행해도 새 창이나 새
+그리드를 만들지 않는다.
+
+```text
+soop 실행
+  -> 전용 Wine prefix에서 그리드 실행
+  -> 21201 준비 확인
+  -> Chromium 앱 창 실행
+  -> Chromium 창 종료
+  -> SOOPPackage, SOOPStreamer, wineserver 종료
+  -> 21201 포트 닫힘
+```
+
+Chromium에는 background mode를 끄는 옵션을 적용한다. wrapper는 Chromium과
+그리드를 자식 프로세스로 감시하며, 창을 닫거나 wrapper가 종료되면 전용
+`wineserver`가 끝날 때까지 기다린다. Linux 자동 시작 항목이나 systemd
+서비스는 만들지 않으므로 앱이 닫힌 뒤 상시 SOOP 데몬은 남지 않는다.
+
+`soop-grid`도 foreground supervisor로 동작한다. 터미널의 `Ctrl-C`, 데스크톱
+세션 종료 또는 벤더 트레이의 종료 동작으로 wrapper가 끝나면 해당 Wine
+프로세스를 모두 정리한다. 통합 앱과 그리드 전용 앱은 동시에 실행할 수 없다.
+
 ## 저장 위치
 
-공식 안정 채널의 실행 파일과 최소 VC71 런타임은 빌드 시 원본 URL에서 받아
-Nix store에 고정한다. 실행 시 다음 쓰기 가능한 위치로 한 번 복사한다.
+런타임 프로세스는 모두 종료하지만 로그인과 설치를 매번 반복하지 않도록 다음
+파일은 디스크에 유지한다.
 
-- Wine prefix와 자동 갱신 파일: `$XDG_DATA_HOME/soop-grid/`
-- 로그: `$XDG_STATE_HOME/soop-grid/agent.log`
-- XDG 변수가 없을 때: `~/.local/share`와 `~/.local/state`
+- Chromium 프로필과 로그인 쿠키: `$XDG_DATA_HOME/soop/chromium/`
+- Wine prefix와 자동 갱신 파일: `$XDG_DATA_HOME/soop/grid/`
+- Chromium 캐시: `$XDG_CACHE_HOME/soop/chromium/`
+- 그리드 로그: `$XDG_STATE_HOME/soop/grid/agent.log`
+- 단일 인스턴스 lock: `$XDG_RUNTIME_DIR/soop/`
 
-같은 seed 버전에서는 복사를 반복하지 않으므로 벤더 자동 갱신 결과도 유지된다.
-flake의 고정 버전을 갱신하면 새 seed를 다시 배치한다. Nix store의 파일을 직접
-실행하거나 그 안에 쓰지 않는다.
+XDG 변수가 없으면 `~/.local/share`, `~/.cache`, `~/.local/state` 아래를
+사용한다. 공식 안정 채널 실행 파일과 최소 VC71 런타임은 빌드 시 원본 URL에서
+받아 Nix store에 고정한 뒤, 최초 실행 때 쓰기 가능한 그리드 데이터 디렉터리로
+복사한다. Nix store 내부에는 런타임 데이터를 쓰지 않는다.
+이전 `soop-grid` 패키지가 만든 `$XDG_DATA_HOME/soop-grid`와
+`$XDG_STATE_HOME/soop-grid`는 에이전트가 정지된 상태에서 새 위치로 한 번
+이동한다.
 
 ## 현재 배포물
 
@@ -61,12 +95,12 @@ $ nix store prefetch-file --json \
 ## 알려진 제한 사항
 
 - `x86_64-linux`만 제공한다.
-- 최초 실행은 Wine prefix 초기화 때문에 시간이 걸릴 수 있다.
+- 최초 실행은 Wine prefix와 Chromium 프로필 초기화 때문에 시간이 걸릴 수 있다.
 - 시청 그리드는 P2P이므로 방송 재생 중 업로드 대역폭을 사용한다.
 - `21201`은 고정 bootstrap 포트지만 실제 시청 작업자의 포트는 동적이다.
-- SOOP의 단계적 업데이트가 고정 seed보다 먼저 배포될 수 있으며, 이 업데이트는
-  XDG 데이터 디렉터리의 쓰기 가능한 복사본에 적용된다.
-- Chromium의 로컬 네트워크 접근 정책이 localhost 연결을 차단하면 사이트별
-  로컬 네트워크 권한을 허용해야 할 수 있다.
-- 빌드 검증만으로 실제 방송의 1080p 재생까지 자동 시험할 수는 없다. 방송 상태,
-  지역 정책, 최신 플레이어와 벤더 서비스의 응답에 영향을 받는다.
+- SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한 복사본에
+  적용된다.
+- Chromium의 로컬 네트워크 접근 정책이 localhost 연결을 차단하면 SOOP에
+  로컬 네트워크 권한을 허용해야 한다.
+- 실제 방송의 1080p 재생 여부는 방송 상태, 지역 정책, 최신 플레이어와 벤더
+  서비스 응답에 영향을 받으므로 빌드 과정에서 자동 시험하지 않는다.

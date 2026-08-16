@@ -1,5 +1,5 @@
 {
-  description = "SOOP viewer grid agent wrapped for NixOS with Wine";
+  description = "SOOP Chromium app with its Windows viewer grid agent";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -12,22 +12,28 @@
         # The downloaded SOOP binaries are proprietary.
         config.allowUnfree = true;
       };
-      soop-grid = pkgs.callPackage ./package.nix { };
+      soopGrid = pkgs.callPackage ./package.nix { };
+      soop = pkgs.callPackage ./webapp.nix { inherit soopGrid; };
     in
     {
       packages.${system} = {
-        default = soop-grid;
-        inherit soop-grid;
+        default = soop;
+        inherit soop;
+        soop-grid = soopGrid;
       };
 
       apps.${system} = {
         default = {
           type = "app";
-          program = "${soop-grid}/bin/soop-grid";
+          program = "${soop}/bin/soop";
+        };
+        soop = {
+          type = "app";
+          program = "${soop}/bin/soop";
         };
         soop-grid = {
           type = "app";
-          program = "${soop-grid}/bin/soop-grid";
+          program = "${soopGrid}/bin/soop-grid";
         };
       };
     };

@@ -9,7 +9,6 @@
   coreutils,
   util-linux,
   iproute2,
-  xdg-utils,
   wineWow64Packages,
 }:
 
@@ -138,7 +137,7 @@ let
     Version=1.0
     Name=SOOP Grid
     Comment=Start the SOOP viewer grid agent
-    Exec=soop-grid --open
+    Exec=soop-grid
     TryExec=soop-grid
     Icon=soop-grid
     Terminal=false
@@ -151,7 +150,6 @@ let
     coreutils
     util-linux
     iproute2
-    xdg-utils
     wine
   ];
 in
