@@ -88,6 +88,7 @@ log_file="$state_root/agent.log"
 runtime_root="${XDG_RUNTIME_DIR:-$soop_root/runtime}/soop"
 lock_file="$runtime_root/grid.lock"
 stop_request="$runtime_root/grid.stop"
+display_file="$runtime_root/xvfb-display.$$"
 
 export WINEPREFIX="$prefix"
 export WINEARCH=win64
@@ -147,6 +148,19 @@ fi
 mkdir -p "$data_root" "$state_root"
 
 wine_pid=""
+xvfb_pid=""
+
+child_is_running() {
+  local child_pid="$1"
+  local running_pid
+
+  while read -r running_pid; do
+    if [[ "$running_pid" == "$child_pid" ]]; then
+      return 0
+    fi
+  done < <(jobs -pr)
+  return 1
+}
 
 cleanup() {
   local exit_status=$?
@@ -155,17 +169,18 @@ cleanup() {
   if [[ -n "$ready_file" ]]; then
     rm -f "$ready_file"
   fi
+  rm -f "$display_file"
 
   printf 'Stopping the SOOP grid agent...\n'
   stop_wine || true
   if [[ -n "$wine_pid" ]]; then
     for _ in {1..100}; do
-      if [[ "$(jobs -pr)" != "$wine_pid" ]]; then
+      if ! child_is_running "$wine_pid"; then
         break
       fi
       sleep 0.05
     done
-    if [[ "$(jobs -pr)" == "$wine_pid" ]]; then
+    if child_is_running "$wine_pid"; then
       kill -KILL "$wine_pid" 2>/dev/null || true
     fi
     wait "$wine_pid" 2>/dev/null || true
@@ -184,6 +199,11 @@ cleanup() {
   if agent_running; then
     printf 'soop-grid: port %d did not close cleanly.\n' "$CONTROL_PORT" >&2
     exit_status=1
+  fi
+
+  if [[ -n "$xvfb_pid" ]]; then
+    kill -TERM "$xvfb_pid" 2>/dev/null || true
+    wait "$xvfb_pid" 2>/dev/null || true
   fi
 
   exit "$exit_status"
@@ -205,6 +225,32 @@ session_should_stop() {
 if session_should_stop; then
   exit 0
 fi
+
+rm -f "$display_file"
+exec 7>"$display_file"
+Xvfb -displayfd 7 -screen 0 1024x768x24 -nolisten tcp >>"$log_file" 2>&1 9>&- &
+xvfb_pid=$!
+exec 7>&-
+
+display_number=""
+for _ in {1..100}; do
+  if [[ -s "$display_file" ]]; then
+    read -r display_number <"$display_file"
+    break
+  fi
+  if ! child_is_running "$xvfb_pid"; then
+    break
+  fi
+  sleep 0.05
+done
+
+if [[ ! "$display_number" =~ ^[0-9]+$ ]]; then
+  printf 'soop-grid: the virtual display did not become ready; see %s\n' \
+    "$log_file" >&2
+  exit 1
+fi
+export DISPLAY=":$display_number"
+unset WAYLAND_DISPLAY
 
 prefix_created=0
 if [[ ! -d "$WINEPREFIX/drive_c/windows" ]]; then
@@ -265,7 +311,7 @@ for _ in {1..300}; do
     started=1
     break
   fi
-  if [[ "$(jobs -pr)" != "$wine_pid" ]]; then
+  if ! child_is_running "$wine_pid"; then
     break
   fi
   if session_should_stop; then

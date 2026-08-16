@@ -9,6 +9,7 @@
   coreutils,
   util-linux,
   iproute2,
+  xorg-server,
   wineWow64Packages,
 }:
 
@@ -150,6 +151,7 @@ let
     coreutils
     util-linux
     iproute2
+    xorg-server
     wine
   ];
 in
