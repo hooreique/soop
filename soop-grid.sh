@@ -1,13 +1,8 @@
-#!@bash@
+#!/usr/bin/env bash
 set -euo pipefail
-
-export PATH="@runtimePath@${PATH:+:$PATH}"
 
 readonly CONTROL_PORT=21201
 readonly RESTART_GRACE_TICKS=240
-readonly PAYLOAD_DIR="@payloadDir@"
-readonly RUNTIME_DIR="@runtimeDir@"
-readonly SEED_VERSION="@seedVersion@"
 
 usage() {
   cat <<'EOF'
@@ -65,6 +60,10 @@ while (($# > 0)); do
   esac
   shift
 done
+
+readonly PAYLOAD_DIR="${SOOP_GRID_PAYLOAD_DIR:?soop-grid requires SOOP_GRID_PAYLOAD_DIR to be set by the package wrapper}"
+readonly RUNTIME_DIR="${SOOP_GRID_RUNTIME_DIR:?soop-grid requires SOOP_GRID_RUNTIME_DIR to be set by the package wrapper}"
+readonly SEED_VERSION="${SOOP_GRID_SEED_VERSION:?soop-grid requires SOOP_GRID_SEED_VERSION to be set by the package wrapper}"
 
 if [[ "$mode" == status ]]; then
   if agent_running; then

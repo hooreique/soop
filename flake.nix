@@ -12,6 +12,10 @@
         # The downloaded SOOP binaries are proprietary.
         config.allowUnfree = true;
       };
+      mkApp = package: {
+        type = "app";
+        program = nixpkgs.lib.getExe package;
+      };
       soopGrid = pkgs.callPackage ./package.nix { };
       soop = pkgs.callPackage ./webapp.nix { inherit soopGrid; };
     in
@@ -23,18 +27,9 @@
       };
 
       apps.${system} = {
-        default = {
-          type = "app";
-          program = "${soop}/bin/soop";
-        };
-        soop = {
-          type = "app";
-          program = "${soop}/bin/soop";
-        };
-        soop-grid = {
-          type = "app";
-          program = "${soopGrid}/bin/soop-grid";
-        };
+        default = mkApp soop;
+        soop = mkApp soop;
+        soop-grid = mkApp soopGrid;
       };
     };
 }

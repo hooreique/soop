@@ -26,6 +26,28 @@ flake는 비자유 SOOP 바이너리를 사용하므로 내부 nixpkgs import에
 `allowUnfree = true`를 명시한다. 다른 flake에서 패키지를 직접 다시 구성하면
 그 nixpkgs 인스턴스에도 비자유 패키지 허용 설정이 필요하다.
 
+## 패키징과 원본 스크립트
+
+`package.nix`는 그리드의 바이너리·런타임·아이콘을, `webapp.nix`는 Chromium
+앱과 확장을 패키징한다. 두 패키지는 Bash 원본을 설치하고 Nix의 shebang 교정,
+`makeShellWrapper`의 런타임 `PATH`·상수 주입, `makeDesktopItem`과
+`copyDesktopItems`의 데스크톱 항목 생성을 사용한다. 빌드 시 원본에
+`bash -n`과 ShellCheck 검사를 실행한다.
+
+원본을 `bash soop.sh` 또는 `bash soop-grid.sh`로 직접 실행하려면 런타임
+명령을 `PATH`에 제공하고 다음 환경변수를 설정해야 한다.
+
+| 원본 | 필수 환경변수 |
+|---|---|
+| `soop.sh` | `SOOP_GRID_BIN`: 그리드 실행 파일의 절대 경로, `SOOP_CHROMIUM_BIN`: Chromium 실행 파일의 절대 경로, `SOOP_EXTENSION_DIR`: 확장 디렉터리 |
+| `soop-grid.sh` | `SOOP_GRID_PAYLOAD_DIR`: 그리드 배포 파일 디렉터리, `SOOP_GRID_RUNTIME_DIR`: VC71 DLL 디렉터리, `SOOP_GRID_SEED_VERSION`: `패키지버전-스트리머버전` |
+
+필요한 런타임 도구는 통합 앱의 경우 coreutils·util-linux·jq, 그리드는
+coreutils·util-linux·iproute2·Xvfb·Wine이다. 필수 환경변수가 없거나 비어 있으면
+상태 파일 생성이나 프로세스 실행 전에 오류로 종료한다. `--help`는 이 변수
+없이도 사용할 수 있다. 패키지 wrapper는 이 값을 고정하며 외부 환경변수를
+덮어쓰므로 사용자 설정용 옵션이 아니다.
+
 ## 수명주기
 
 통합 앱은 단일 인스턴스다. `soop`이 실행 중일 때 다시 실행해도 새 창이나 새

@@ -1,12 +1,7 @@
-#!@bash@
+#!/usr/bin/env bash
 set -euo pipefail
 
-export PATH="@runtimePath@${PATH:+:$PATH}"
-
 readonly SITE_URL="https://www.sooplive.com/"
-readonly GRID_BIN="@gridBin@"
-readonly CHROMIUM_BIN="@chromiumBin@"
-readonly EXTENSION_DIR="@extensionDir@"
 
 usage() {
   cat <<'EOF'
@@ -30,6 +25,10 @@ if (($# > 0)); then
       ;;
   esac
 fi
+
+readonly GRID_BIN="${SOOP_GRID_BIN:?soop requires SOOP_GRID_BIN to be set by the package wrapper}"
+readonly CHROMIUM_BIN="${SOOP_CHROMIUM_BIN:?soop requires SOOP_CHROMIUM_BIN to be set by the package wrapper}"
+readonly EXTENSION_DIR="${SOOP_EXTENSION_DIR:?soop requires SOOP_EXTENSION_DIR to be set by the package wrapper}"
 
 : "${HOME:?soop requires HOME to be set}"
 
