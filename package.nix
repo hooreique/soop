@@ -2,7 +2,10 @@
   lib,
   stdenvNoCC,
   fetchurl,
-  writeText,
+  makeDesktopItem,
+  copyDesktopItems,
+  makeShellWrapper,
+  shellcheck,
   gzip,
   icoutils,
   bashNonInteractive,
@@ -125,27 +128,33 @@ let
     }
   ];
 
-  installIcons = lib.concatMapStringsSep "\n" ({ index, size }: ''
-    install -d "$out/share/icons/hicolor/${toString size}x${toString size}/apps"
-    icotool -x --index=${toString index} \
-      --output="$out/share/icons/hicolor/${toString size}x${toString size}/apps/soop-grid.png" \
-      "$TMPDIR/soop-grid.ico"
-  '') iconSizes;
+  installIcons = lib.concatMapStringsSep "\n" (
+    { index, size }:
+    ''
+      install -d "$out/share/icons/hicolor/${toString size}x${toString size}/apps"
+      icotool -x --index=${toString index} \
+        --output="$out/share/icons/hicolor/${toString size}x${toString size}/apps/soop-grid.png" \
+        "$TMPDIR/soop-grid.ico"
+    ''
+  ) iconSizes;
 
-  desktopFile = writeText "soop-grid.desktop" ''
-    [Desktop Entry]
-    Type=Application
-    Version=1.0
-    Name=SOOP Grid
-    Comment=Start the SOOP viewer grid agent
-    Exec=soop-grid
-    TryExec=soop-grid
-    Icon=soop-grid
-    Terminal=false
-    Categories=AudioVideo;
-    Keywords=SOOP;live;streaming;P2P;
-    StartupNotify=false
-  '';
+  desktopItem = makeDesktopItem {
+    name = "soop-grid";
+    desktopName = "SOOP Grid";
+    comment = "Start the SOOP viewer grid agent";
+    exec = "soop-grid";
+    tryExec = "soop-grid";
+    icon = "soop-grid";
+    terminal = false;
+    categories = [ "AudioVideo" ];
+    keywords = [
+      "SOOP"
+      "live"
+      "streaming"
+      "P2P"
+    ];
+    startupNotify = false;
+  };
 
   runtimePath = lib.makeBinPath [
     coreutils
@@ -165,14 +174,30 @@ stdenvNoCC.mkDerivation {
   nativeBuildInputs = [
     gzip
     icoutils
+    copyDesktopItems
+    makeShellWrapper
   ];
+
+  buildInputs = [ bashNonInteractive ];
+  nativeCheckInputs = [
+    bashNonInteractive
+    shellcheck
+  ];
+  doCheck = true;
+  checkPhase = ''
+    runHook preCheck
+    bash -n ${./soop-grid.sh}
+    shellcheck ${./soop-grid.sh}
+    runHook postCheck
+  '';
+
+  desktopItems = [ desktopItem ];
 
   installPhase = ''
     runHook preInstall
 
     install -d \
       "$out/bin" \
-      "$out/share/applications" \
       "$out/share/licenses/soop-grid" \
       "$out/share/soop-grid/payload" \
       "$out/share/soop-grid/runtime"
@@ -188,16 +213,18 @@ stdenvNoCC.mkDerivation {
       "$out/share/soop-grid/payload/SOOPPackage.exe" > "$TMPDIR/soop-grid.ico"
     ${installIcons}
 
-    install -m 0444 ${desktopFile} "$out/share/applications/soop-grid.desktop"
-    substitute ${./soop-grid.sh} "$out/bin/soop-grid" \
-      --subst-var-by bash ${lib.getExe bashNonInteractive} \
-      --subst-var-by runtimePath ${runtimePath} \
-      --subst-var-by payloadDir "$out/share/soop-grid/payload" \
-      --subst-var-by runtimeDir "$out/share/soop-grid/runtime" \
-      --subst-var-by seedVersion "${upstream.packageVersion}-${upstream.streamerVersion}"
-    chmod 0555 "$out/bin/soop-grid"
+    install -m 0555 ${./soop-grid.sh} "$out/bin/soop-grid"
 
     runHook postInstall
+  '';
+
+  # Wrap after the normal fixup has patched the executable script's shebang.
+  postFixup = ''
+    wrapProgram "$out/bin/soop-grid" \
+      --prefix PATH : "${runtimePath}" \
+      --set SOOP_GRID_PAYLOAD_DIR "$out/share/soop-grid/payload" \
+      --set SOOP_GRID_RUNTIME_DIR "$out/share/soop-grid/runtime" \
+      --set SOOP_GRID_SEED_VERSION "${upstream.packageVersion}-${upstream.streamerVersion}"
   '';
 
   passthru = {
