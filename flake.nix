@@ -7,8 +7,13 @@
     { nixpkgs, ... }:
     let
       system = "x86_64-linux";
+      overlay = final: prev: {
+        soop-grid = final.callPackage ./package.nix { };
+        soop = final.callPackage ./webapp.nix { soopGrid = final.soop-grid; };
+      };
       pkgs = import nixpkgs {
         inherit system;
+        overlays = [ overlay ];
         # The downloaded SOOP binaries are proprietary.
         config.allowUnfree = true;
       };
@@ -16,13 +21,15 @@
         type = "app";
         program = nixpkgs.lib.getExe package;
       };
-      soopGrid = pkgs.callPackage ./package.nix { };
-      soop = pkgs.callPackage ./webapp.nix { inherit soopGrid; };
+      soopGrid = pkgs.soop-grid;
+      soop = pkgs.soop;
     in
     {
+      overlays.default = overlay;
+
       packages.${system} = {
         default = soop;
-        inherit soop;
+        soop = soop;
         soop-grid = soopGrid;
       };
 

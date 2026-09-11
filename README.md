@@ -25,6 +25,27 @@ $ nix profile install .
 
 설치 후 앱 메뉴의 **SOOP** 또는 터미널의 `soop`으로 실행한다.
 
+### 다른 flake에서 overlay 사용하기
+
+이 저장소를 `inputs.soop`으로 추가한 flake에서는 기본 overlay를 적용해
+소비자의 nixpkgs에 `pkgs.soop`과 `pkgs.soop-grid`를 추가할 수 있다.
+지원 플랫폼은 `x86_64-linux`이며, 비자유 패키지 허용은 소비자 쪽에서 설정한다.
+
+```nix
+pkgs = import inputs.nixpkgs {
+  inherit system;
+  config.allowUnfree = true;
+  overlays = [
+    inputs.soop.overlays.default
+  ];
+};
+```
+
+overlay가 적용된 `pkgs`를 사용하는 NixOS 설정에서는
+`environment.systemPackages = [ pkgs.soop ];`으로 통합 앱을 설치한다.
+그리드만 설치하려면 `pkgs.soop-grid`를 사용한다. Home Manager에서는
+같은 패키지를 `home.packages`에 추가한다.
+
 ## 사용 시 참고
 
 - 최초 실행은 초기화 때문에 시간이 걸릴 수 있다. 로그인 정보는 다음 실행에도 유지된다.

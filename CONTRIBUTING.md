@@ -8,6 +8,7 @@
 저장소 디렉터리에서 실행한다.
 
 ```console
+$ nix flake check
 $ nix build .
 $ nix build .#soop-grid
 ```
@@ -20,10 +21,19 @@ $ nix build .#soop-grid
 서비스 응답에 영향을 받으므로 빌드 과정에서 자동 시험하지 않는다.
 
 flake는 비자유 SOOP 바이너리를 사용하므로 내부 nixpkgs import에
-`allowUnfree = true`를 명시한다. 다른 flake에서 패키지를 직접 다시 구성하면
-그 nixpkgs 인스턴스에도 비자유 패키지 허용 설정이 필요하다.
+`allowUnfree = true`를 명시한다. 다른 flake에서 overlay를 적용하거나 패키지를
+직접 다시 구성하면 그 nixpkgs 인스턴스에도 비자유 패키지 허용 설정이 필요하다.
+overlay 자체는 소비자의 설정을 변경하지 않는다.
 
 ## 패키징과 원본 스크립트
+
+`flake.nix`의 `overlays.default`는 `final: prev:` 형태로 `soop-grid`와
+`soop`을 제공한다. 두 패키지는 `final.callPackage`로 구성하고, 통합 앱에는
+`soopGrid = final.soop-grid`를 전달한다. 따라서 소비자의 의존성 재정의가
+반영되며, 후속 overlay에서 `soop-grid`를 재정의하면 통합 앱과 그
+`soop.grid` 속성도 해당 패키지를 참조한다.
+내부 nixpkgs import에도 같은 overlay를 적용하며, 기존 `packages`와 `apps`는
+그 패키지를 참조한다. 기본 패키지와 기본 실행 앱은 계속 `soop`이다.
 
 `package.nix`는 그리드의 바이너리·런타임·아이콘을, `webapp.nix`는 Chromium
 앱과 확장을 패키징한다. 두 패키지는 Bash 원본을 설치하고 Nix의 shebang 교정,
