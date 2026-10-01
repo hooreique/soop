@@ -115,17 +115,19 @@ SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한
 
 ## 배포물과 버전 갱신
 
-2026-08-16에 확인한 공식 설치 프로그램은 다음과 같다.
+2026-10-01에 확인한 공식 설치 프로그램은 다음과 같다.
 
 - URL: `https://creatorup.sooplive.com/SOOPStreamer_installer.exe`
 - 설치 프로그램 버전: `1.0.0.1`
-- SHA-256: `sha256-olSn2T+CcdWvW8LPMDeLy6BA/95pzzsrtXVKOwxUQgg=`
+- SHA-256: `sha256-KA/yXxdcZitMVA7PQKDM8/nLsazBqWguQiPvqsTkp/0=`
 - 무인 설치 인자: `/S` (대소문자 구분)
 
 이 설치 프로그램은 현재 파일을 다시 내려받는 부트스트랩이므로 flake에서는
 사용하지 않는다. 대신
 `https://creatorup.sooplive.com/SOOP/SOOPFileList.xml`의 안정 채널 파일을
-직접 고정한다. 현재 `SOOPStreamer.exe` 버전은 `26.7.14.1201`이다.
+직접 고정한다. 현재 `SOOPStreamer.exe`의 PE 파일·제품 버전은 `2.3.32.0`이다.
+이전 배포물의 `26.7.14.1201`과 버전 표기 방식이 달라졌으며, 현재 XML에
+명시된 압축 해제 파일의 SHA-256과 내려받은 바이너리의 일치를 확인했다.
 
 버전을 갱신하려면 XML의 파일 목록을 확인하고 `package.nix`의 버전과 해시를
 바꾼다. XML의 `H`는 압축 해제된 파일의 해시이므로 Nix 소스 해시로 바로 쓸 수

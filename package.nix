@@ -21,10 +21,10 @@ let
 
   upstream = {
     packageVersion = "1.0.0.1";
-    streamerVersion = "26.7.14.1201";
+    streamerVersion = "2.3.32.0";
     baseUrl = "https://creatorup.sooplive.com/SOOP";
     installerUrl = "https://creatorup.sooplive.com/SOOPStreamer_installer.exe";
-    installerHash = "sha256-olSn2T+CcdWvW8LPMDeLy6BA/95pzzsrtXVKOwxUQgg=";
+    installerHash = "sha256-KA/yXxdcZitMVA7PQKDM8/nLsazBqWguQiPvqsTkp/0=";
   };
 
   # Update from SOOPFileList.xml at upstream.baseUrl. Its H fields hash the
@@ -33,11 +33,11 @@ let
   appFiles = [
     {
       name = "Uninstall.exe.gz";
-      hash = "sha256-yFUkZstEtVfxXTlZnsjnJO4ZamSLmp6j7vw4KmK90Ds=";
+      hash = "sha256-YpeW2iwzUAbxAEuA/rB5XUhA/JDqFU+XMziiOzYI07Q=";
     }
     {
       name = "NetControl.dll.gz";
-      hash = "sha256-8+iTCJu7FZXQJnuWExov58dOq2QmRKNwnQttnVsGrAQ=";
+      hash = "sha256-sS3DXmV5zk6PbpFVBdc2XCDf1EmhVjvuWVTPiTwqQWU=";
     }
     {
       name = "upnputil.dll.gz";
@@ -57,7 +57,7 @@ let
     }
     {
       name = "SOOPStreamer.exe.gz";
-      hash = "sha256-gPPCshwDjEJ5MCDMXcK/t4fKT/ehlEOzuVQ5P8Kmdeo=";
+      hash = "sha256-seGzqWrwBeca1Vnn0grebP0t40lryRIm6CT/Dwb6e9E=";
     }
   ];
 
