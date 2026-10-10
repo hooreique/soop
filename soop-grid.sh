@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly CONTROL_PORT=21201
-readonly RESTART_GRACE_TICKS=240
+readonly SERVICE_GRACE_SECONDS=60
 
 usage() {
   cat <<'EOF'
 Usage: soop-grid [--status | --stop] [--parent-pid PID] [--ready-file PATH]
 
-  --status          Report whether the control service is listening on port 21201
+  --status          Report whether the private launcher owns a localhost listener
   --stop            Stop every Wine process in the private SOOP prefix
   --parent-pid PID  Stop when PID exits (used by the integrated SOOP app)
   --ready-file PATH Write readiness to PATH (used by the integrated SOOP app)
@@ -16,8 +15,48 @@ Usage: soop-grid [--status | --stop] [--parent-pid PID] [--ready-file PATH]
 EOF
 }
 
+launcher_pids() {
+  local proc arg entry matched
+  for proc in /proc/[0-9]*; do
+    [[ -r "$proc/cmdline" && -r "$proc/environ" ]] || continue
+    matched=0
+    while IFS= read -r -d '' arg; do
+      case "$arg" in
+        */SOOPLiveLauncher.exe|SOOPLiveLauncher.exe) matched=1 ;;
+      esac
+    done <"$proc/cmdline" 2>/dev/null || continue
+    ((matched)) || continue
+    while IFS= read -r -d '' entry; do
+      if [[ "$entry" == "WINEPREFIX=$prefix" ]]; then
+        printf '%s\n' "${proc##*/}"
+        break
+      fi
+    done <"$proc/environ" 2>/dev/null || true
+  done
+}
+
 agent_running() {
-  [[ -n "$(ss -H -ltn "sport = :$CONTROL_PORT" 2>/dev/null)" ]]
+  local line address owner pid ports=""
+  local -a pids=()
+  mapfile -t pids < <(launcher_pids)
+  ((${#pids[@]})) || return 1
+  while IFS= read -r line; do
+    read -r _ _ _ address _ owner <<<"$line"
+    case "$address" in
+      127.*:*|\[::1\]:*) ;;
+      *) continue ;;
+    esac
+    for pid in "${pids[@]}"; do
+      if [[ "$owner" == *"pid=$pid,"* ]]; then
+        if [[ " $ports" != *" ${address##*:} "* ]]; then
+          ports+="${address##*:} "
+        fi
+        break
+      fi
+    done
+  done < <(ss -H -ltnp 2>/dev/null)
+  detected_ports="${ports% }"
+  [[ -n "$detected_ports" ]]
 }
 
 mode=run
@@ -62,17 +101,7 @@ while (($# > 0)); do
 done
 
 readonly PAYLOAD_DIR="${SOOP_GRID_PAYLOAD_DIR:?soop-grid requires SOOP_GRID_PAYLOAD_DIR to be set by the package wrapper}"
-readonly RUNTIME_DIR="${SOOP_GRID_RUNTIME_DIR:?soop-grid requires SOOP_GRID_RUNTIME_DIR to be set by the package wrapper}"
 readonly SEED_VERSION="${SOOP_GRID_SEED_VERSION:?soop-grid requires SOOP_GRID_SEED_VERSION to be set by the package wrapper}"
-
-if [[ "$mode" == status ]]; then
-  if agent_running; then
-    printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
-    exit 0
-  fi
-  printf 'SOOP grid agent is not running.\n'
-  exit 1
-fi
 
 : "${HOME:?soop-grid requires HOME to be set}"
 
@@ -92,7 +121,17 @@ display_file="$runtime_root/xvfb-display.$$"
 export WINEPREFIX="$prefix"
 export WINEARCH=win64
 export WINEDEBUG="${WINEDEBUG:--all}"
-export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}mfc71,mfc71u,msvcp71,msvcr71=n;winemenubuilder.exe=d"
+export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:+$WINEDLLOVERRIDES;}winemenubuilder.exe=d"
+
+detected_ports=""
+if [[ "$mode" == status ]]; then
+  if agent_running; then
+    printf 'SOOP grid launcher listens on localhost ports: %s.\n' "$detected_ports"
+    exit 0
+  fi
+  printf 'SOOP grid agent is not running.\n'
+  exit 1
+fi
 
 umask 077
 mkdir -p "$runtime_root"
@@ -120,8 +159,8 @@ if [[ "$mode" == stop ]]; then
   stop_wine || stop_status=1
   rm -f "$stop_request"
   if agent_running; then
-    printf 'soop-grid: port %d is still in use by another process.\n' \
-      "$CONTROL_PORT" >&2
+    printf 'soop-grid: private launcher is still listening: %s.\n' \
+      "$detected_ports" >&2
     exit 1
   fi
   if ((stop_status)); then
@@ -140,7 +179,7 @@ fi
 rm -f "$stop_request"
 
 if agent_running; then
-  printf 'soop-grid: port %d is already in use.\n' "$CONTROL_PORT" >&2
+  printf 'soop-grid: private launcher is already listening: %s.\n' "$detected_ports" >&2
   exit 1
 fi
 
@@ -196,7 +235,7 @@ cleanup() {
     sleep 0.05
   done
   if agent_running; then
-    printf 'soop-grid: port %d did not close cleanly.\n' "$CONTROL_PORT" >&2
+    printf 'soop-grid: launcher sockets did not close: %s.\n' "$detected_ports" >&2
     exit_status=1
   fi
 
@@ -205,17 +244,21 @@ cleanup() {
     wait "$xvfb_pid" 2>/dev/null || true
   fi
 
+  rm -f "$stop_request"
+  printf 'Session cleanup complete; exit status: %s\n' "$exit_status" >>"$log_file"
   exit "$exit_status"
 }
 
 trap cleanup EXIT
-trap 'exit 0' INT TERM HUP
+trap 'printf "Session received a termination signal.\n" >>"$log_file"; exit 0' INT TERM HUP
 
 session_should_stop() {
   if [[ -e "$stop_request" ]]; then
+    printf "Stop requested.\n" >>"$log_file"
     return 0
   fi
   if [[ -n "$parent_pid" ]] && ! kill -0 "$parent_pid" 2>/dev/null; then
+    printf "Parent exited.\n" >>"$log_file"
     return 0
   fi
   return 1
@@ -245,63 +288,35 @@ done
 
 if [[ ! "$display_number" =~ ^[0-9]+$ ]]; then
   printf 'soop-grid: the virtual display did not become ready; see %s\n' \
-    "$log_file" >&2
+    "$log_file" | tee -a "$log_file" >&2
   exit 1
 fi
 export DISPLAY=":$display_number"
 unset WAYLAND_DISPLAY
 
-prefix_created=0
 if [[ ! -d "$WINEPREFIX/drive_c/windows" ]]; then
   printf 'Initializing the private SOOP Wine prefix...\n'
-  wineboot --init >>"$log_file" 2>&1
-  prefix_created=1
+  wineboot --init >>"$log_file" 2>&1 9>&-
 fi
 
-seed_changed=0
-seed_marker="$app_dir/.nix-seed-version"
-if [[ ! -f "$seed_marker" ]] || [[ "$(<"$seed_marker")" != "$SEED_VERSION" ]]; then
-  seed_changed=1
-fi
-
-for required_file in \
-  SOOPPackage.exe SOOPStreamer.exe NetControl.dll upnputil.dll SOOPLogUtil.dll; do
-  if [[ ! -f "$app_dir/$required_file" ]]; then
-    seed_changed=1
+# Restore package-owned files regardless of the writable copy's version.
+mkdir -p "$app_dir"
+for source_file in "$PAYLOAD_DIR/"*; do
+  target_file="$app_dir/${source_file##*/}"
+  if ! cmp -s "$source_file" "$target_file"; then
+    cp -f "$source_file" "$target_file"
+    chmod u+rw "$target_file"
   fi
 done
-
-if ((seed_changed)); then
-  mkdir -p "$app_dir"
-  cp -f "$PAYLOAD_DIR/"* "$app_dir/"
-  chmod u+rw "$app_dir/"*
-  printf '%s\n' "$SEED_VERSION" >"$seed_marker"
-fi
-
-windows_runtime="$WINEPREFIX/drive_c/windows/syswow64"
-mkdir -p "$windows_runtime"
-for runtime_file in mfc71.dll mfc71u.dll msvcp71.dll msvcr71.dll; do
-  if ((prefix_created || seed_changed)) || [[ ! -f "$windows_runtime/$runtime_file" ]]; then
-    cp -f "$RUNTIME_DIR/$runtime_file" "$windows_runtime/$runtime_file"
-    chmod u+rw "$windows_runtime/$runtime_file"
-  fi
-done
-
-if session_should_stop; then
-  exit 0
-fi
-
-# Keep the vendor updater in the writable XDG application directory.
-windows_app_dir="$(winepath -w "$app_dir" 2>>"$log_file")"
-wine reg add 'HKCU\Software\SOOP\Updater2' \
-  /v Path /t REG_SZ /d "$windows_app_dir" /f >>"$log_file" 2>&1
+printf '%s\n' "$SEED_VERSION" >"$app_dir/.nix-seed-version"
+printf '{}\n' >"$app_dir/config.json"
 
 if session_should_stop; then
   exit 0
 fi
 
 printf 'Starting the SOOP grid agent...\n'
-wine "$app_dir/SOOPPackage.exe" >>"$log_file" 2>&1 9>&- &
+(cd "$app_dir" && exec wine ./SOOPLiveLauncher.exe) >>"$log_file" 2>&1 9>&- &
 wine_pid=$!
 
 started=0
@@ -320,27 +335,40 @@ for _ in {1..300}; do
 done
 
 if ((!started)); then
-  printf 'soop-grid: the control service did not open port %d; see %s\n' \
-    "$CONTROL_PORT" "$log_file" >&2
+  printf 'soop-grid: launcher did not open a localhost socket (%s); see %s\n' \
+    "$detected_ports" "$log_file" | tee -a "$log_file" >&2
   exit 1
 fi
 
 if [[ -n "$ready_file" ]]; then
   printf '%s\n' "$$" >"$ready_file"
 fi
-printf 'SOOP grid agent is listening on port %d.\n' "$CONTROL_PORT"
+printf 'SOOP grid launcher listens on localhost ports: %s.\n' "$detected_ports"
 
-missing_ticks=0
-while ((missing_ticks < RESTART_GRACE_TICKS)); do
+printf "Launcher ready; localhost ports: %s\n" "$detected_ports" >>"$log_file"
+missing_since=""
+while true; do
   if session_should_stop; then
     break
   fi
 
-  # The vendor updater briefly replaces SOOPPackage.exe and its listening socket.
   if agent_running; then
-    missing_ticks=0
+    if [[ -n "$missing_since" ]]; then
+      printf "Launcher service recovered; ports: %s\n" "$detected_ports" >>"$log_file"
+    fi
+    missing_since=""
   else
-    ((missing_ticks += 1))
+    # Linux uptime is monotonic and expressed with two decimal places. Count
+    # elapsed time so process/socket inspection does not lengthen the grace.
+    read -r uptime _ </proc/uptime
+    now_ticks=$((10#${uptime/./}))
+    if [[ -z "$missing_since" ]]; then
+      missing_since="$now_ticks"
+      printf "Launcher process or localhost socket lost; starting 60-second grace.\n" >>"$log_file"
+    elif ((now_ticks - missing_since >= SERVICE_GRACE_SECONDS * 100)); then
+      printf 'Launcher process or socket absent for 60 seconds.\n' >>"$log_file"
+      exit 1
+    fi
   fi
   sleep 0.25
 done

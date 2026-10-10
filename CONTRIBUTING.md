@@ -13,7 +13,9 @@ $ nix build .
 $ nix build .#soop-grid
 ```
 
-두 패키지는 빌드 시 Bash 구문 검사와 ShellCheck를 실행한다. 런타임 변경 시에는
+두 패키지는 빌드 시 Bash 구문 검사와 ShellCheck를 실행한다. 그리드 패키지는
+`tests/socket-status.py`에서 실제 프로세스와 임의 TCP 포트를 사용해 전용
+prefix·소켓 소유권 판정, 다른 prefix 및 무관한 리스너 제외를 검사한다. 런타임 변경 시에는
 `nix run .`으로 실행하고, 창을 닫은 뒤 그리드 프로세스가 종료되는지 확인한다.
 그리드 상태는 `nix run .#soop-grid -- --status`로 확인할 수 있다.
 
@@ -47,7 +49,7 @@ overlay 자체는 소비자의 설정을 변경하지 않는다.
 | 원본 | 필수 환경변수 |
 |---|---|
 | `soop.sh` | `SOOP_GRID_BIN`: 그리드 실행 파일의 절대 경로, `SOOP_CHROMIUM_BIN`: Chromium 실행 파일의 절대 경로, `SOOP_EXTENSION_DIR`: 확장 디렉터리 |
-| `soop-grid.sh` | `SOOP_GRID_PAYLOAD_DIR`: 그리드 배포 파일 디렉터리, `SOOP_GRID_RUNTIME_DIR`: VC71 DLL 디렉터리, `SOOP_GRID_SEED_VERSION`: `패키지버전-스트리머버전` |
+| `soop-grid.sh` | `SOOP_GRID_PAYLOAD_DIR`: 그리드 배포 파일 디렉터리, `SOOP_GRID_SEED_VERSION`: 런처·스트리머 버전 및 고정 배포물 해시 |
 
 필요한 런타임 도구는 통합 앱의 경우 coreutils·util-linux·jq, 그리드는
 coreutils·util-linux·iproute2·Xvfb·Wine이다. 필수 환경변수가 없거나 비어 있으면
@@ -57,10 +59,13 @@ coreutils·util-linux·iproute2·Xvfb·Wine이다. 필수 환경변수가 없거
 
 ## 그리드 구성과 수명주기
 
-기본 앱은 먼저 공식 `SOOPPackage.exe`를 준비해 브라우저 감지용 WebSocket을
-`21201` 포트에 열고, 전용 Chromium 프로필로 `sooplive.com`을 표시한다.
-재생 세션이 생기면 `SOOPPackage.exe`가 `SOOPStreamer.exe` P2P 작업자를
-실행한다. `21201`은 고정 bootstrap 포트지만 실제 시청 작업자의 포트는 동적이다.
+기본 앱은 공식 `SOOPLiveLauncher.exe`를 전용 Wine prefix에서 실행한다.
+`/proc`의 실행 인자와 `WINEPREFIX`가 일치하는 런처 프로세스를 찾고,
+`ss -ltnp`에서 그 프로세스가 소유한 localhost 리스닝 소켓으로 준비 및 실행
+상태를 판정한다. 다른 prefix나 무관한 리스너는 상태 판정에서 제외한다.
+스트리머의 `ports.json`은 재생 작업자 포트이므로 사용하지 않는다.
+서비스가 사라지면 60초 유예 후 종료하고 Wine과 Xvfb를 정리한다.
+감지한 포트와 종료 원인은 `agent.log`에 기록한다.
 
 통합 앱은 단일 인스턴스다. `soop`이 실행 중일 때 다시 실행해도 새 창이나 새
 그리드를 만들지 않는다.
@@ -68,11 +73,11 @@ coreutils·util-linux·iproute2·Xvfb·Wine이다. 필수 환경변수가 없거
 ```text
 soop 실행
   -> 전용 Wine prefix에서 그리드 실행
-  -> 21201 준비 확인
+  -> 런처가 소유한 localhost 리스닝 소켓 준비 확인
   -> Chromium 앱 창 실행
   -> Chromium 창 종료
-  -> SOOPPackage, SOOPStreamer, wineserver 종료
-  -> 21201 포트 닫힘
+  -> SOOPLiveLauncher, SOOPStreamer, wineserver 종료
+  -> 런처 소켓 닫힘
 ```
 
 Chromium에는 background mode를 끄는 옵션을 적용한다. wrapper는 Chromium과
@@ -101,17 +106,28 @@ SOOP 그리드 감지에 필요한 브라우저 권한 팝업을 별도로 처�
 파일은 디스크에 유지한다.
 
 - Chromium 프로필과 로그인 쿠키: `$XDG_DATA_HOME/soop/chromium/`
-- Wine prefix와 자동 갱신 파일: `$XDG_DATA_HOME/soop/grid/`
+- Wine prefix와 고정 배포물 복사본: `$XDG_DATA_HOME/soop/grid/`
 - Chromium 캐시: `$XDG_CACHE_HOME/soop/chromium/`
 - 그리드 로그: `$XDG_STATE_HOME/soop/grid/agent.log`
 - 단일 인스턴스 lock: `$XDG_RUNTIME_DIR/soop/`
 
 XDG 변수가 없으면 `~/.local/share`, `~/.cache`, `~/.local/state` 아래를
-사용한다. 공식 안정 채널 실행 파일과 최소 VC71 런타임은 빌드 시 원본 URL에서
+사용한다. 공식 안정 채널 실행 파일은 빌드 시 원본 URL에서
 받아 Nix store에 고정한 뒤, 최초 실행 때 쓰기 가능한 그리드 데이터 디렉터리로
 복사한다. Nix store 내부에는 런타임 데이터를 쓰지 않는다.
 
-SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한 복사본에 적용된다.
+실행 전 패키지 소유 파일을 Nix store의 고정 배포물과 비교해 변경된 파일을
+복원한다. 버전 문자열이 같아도 파일이 다르면 복원하며 초기화 식별자에도
+배포물 해시를 포함한다. 기존 Wine prefix와 Chromium 로그인은 유지한다.
+런처와 스트리머의 자동 업데이트를 차단하기 위해 앱 디렉터리에 `config.json`
+(`{}`)을 배치하고 그 디렉터리에서 실행한다. 업데이트는 Nix 패키지 갱신으로
+적용한다. 두 실행 파일의 PE import는 Windows 기본 DLL만 참조하므로 이전
+VC71 런타임과 런처 DLL은 패키지에 포함하지 않는다.
+
+업데이트 차단의 실제 동작은 런처·스트리머에서 업데이트 확인을 유발한 뒤
+바이너리 해시 및 버전을 비교해 검증해야 한다. 신규 설치와 자동 갱신된 기존
+설치에서 시작·상태·종료를 확인하고 실제 고화질 방송을 10분 이상 재생한 뒤,
+창 닫기 및 `--stop` 이후 프로세스·소켓·잠금 정리를 확인한다.
 
 ## 배포물과 버전 갱신
 
@@ -125,9 +141,17 @@ SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한
 이 설치 프로그램은 현재 파일을 다시 내려받는 부트스트랩이므로 flake에서는
 사용하지 않는다. 대신
 `https://creatorup.sooplive.com/SOOP/SOOPFileList.xml`의 안정 채널 파일을
-직접 고정한다. 현재 `SOOPStreamer.exe`의 PE 파일·제품 버전은 `2.3.32.0`이다.
-이전 배포물의 `26.7.14.1201`과 버전 표기 방식이 달라졌으며, 현재 XML에
-명시된 압축 해제 파일의 SHA-256과 내려받은 바이너리의 일치를 확인했다.
+직접 고정한다. 현재 고정한 실행 파일은 다음과 같다. 두 파일의 PE 파일·제품 버전과
+압축 파일 해시를 확인했다. 같은 버전으로 바이너리가 재배포될 수 있으므로
+버전과 해시를 함께 갱신한다.
+
+| 파일 | 버전 | 압축 파일 SHA-256 SRI |
+|---|---|---|
+| `SOOPLiveLauncher.exe.gz` | `1.0.0.0` | `sha256-KeoItPEyXpcFzcGfZzgELAxzEGK3abKc9Xc6a7M/5G8=` |
+| `SOOPStreamer.exe.gz` | `2.3.32.0` | `sha256-n7yP9tvfAUwfNEk5eutfhsb/NkoR1FY5Dzz/pSYKehg=` |
+
+라이선스와 제거 프로그램도 `package.nix`의 해시로 고정한다. 앱 아이콘은
+새 런처의 `IDI_ICON1` 리소스에서 추출한다.
 
 버전을 갱신하려면 XML의 파일 목록을 확인하고 `package.nix`의 버전과 해시를
 바꾼다. XML의 `H`는 압축 해제된 파일의 해시이므로 Nix 소스 해시로 바로 쓸 수
@@ -135,5 +159,23 @@ SOOP의 단계적 업데이트는 XDG 데이터 디렉터리의 쓰기 가능한
 
 ```console
 $ nix store prefetch-file --json \
-    https://creatorup.sooplive.com/SOOP/SOOPPackage.exe.gz
+    https://creatorup.sooplive.com/SOOP/SOOPLiveLauncher.exe.gz
 ```
+
+## 런타임 확인 기록 (2026-10-10)
+
+- Bash 구문 검사, ShellCheck, 소켓 소유권 회귀 테스트, `nix flake check`와
+  두 패키지 빌드를 통과했다.
+- 새 Wine prefix와 기존 자동 갱신된 설치에서 시작·상태·종료를 확인했다.
+  실제 런처의 `26737` localhost 소켓을 감지했고, 무관한 프로세스와 다른
+  prefix의 리스너를 정상 서비스로 판정하지 않았다.
+- PE 버전을 유지한 채 런처·스트리머 파일을 변경해도 실행 전 고정 배포물로
+  복원됐다. 격리한 설치에서 스트리머 파일을 잠시 치우고 세 번 업데이트
+  검사를 유발했을 때 `config.json`이 있으면 다운로드되지 않았다. 이 파일을
+  제거한 대조 시험에서는 스트리머가 다시 다운로드됐다.
+- 공개 방송을 1920×1080으로 601초 동안 감시했다. 영상 시간이 계속 증가했고
+  창이 유지됐으며 런처·스트리머의 SHA-256은 고정 배포물과 일치했다.
+- 창 닫기, 부모 종료, `--stop` 이후 Wine·Xvfb·준비 파일이 정리되고 잠금이
+  해제됐다. 실제 런처를 종료했을 때 살아 있는 스트리머를 정상 서비스로
+  오인하지 않았으며, 60초 유예 후 남은 프로세스·소켓·잠금을 정리했다.
+  유예는 검사 횟수가 아닌 `/proc/uptime`의 경과 시간으로 계산한다.

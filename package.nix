@@ -6,6 +6,7 @@
   copyDesktopItems,
   makeShellWrapper,
   shellcheck,
+  python3,
   gzip,
   icoutils,
   bashNonInteractive,
@@ -20,7 +21,7 @@ let
   wine = wineWow64Packages.stable;
 
   upstream = {
-    packageVersion = "1.0.0.1";
+    launcherVersion = "1.0.0.0";
     streamerVersion = "2.3.32.0";
     baseUrl = "https://creatorup.sooplive.com/SOOP";
     installerUrl = "https://creatorup.sooplive.com/SOOPStreamer_installer.exe";
@@ -36,20 +37,8 @@ let
       hash = "sha256-YpeW2iwzUAbxAEuA/rB5XUhA/JDqFU+XMziiOzYI07Q=";
     }
     {
-      name = "NetControl.dll.gz";
-      hash = "sha256-sS3DXmV5zk6PbpFVBdc2XCDf1EmhVjvuWVTPiTwqQWU=";
-    }
-    {
-      name = "upnputil.dll.gz";
-      hash = "sha256-jeG8aks1E+1ho2R+SMeyliDvYQp6zMqNcq0GbckKF1Y=";
-    }
-    {
-      name = "SOOPPackage.exe.gz";
-      hash = "sha256-Jro2GVQwqJzjXTV9qiJdUGrzsx45W2bPmqkwUh/GhB0=";
-    }
-    {
-      name = "SOOPLogUtil.dll.gz";
-      hash = "sha256-3Ap2S7f2g6d3YqLmjbJ8o0kVuxARrp4q6Dju5kEkxlQ=";
+      name = "SOOPLiveLauncher.exe.gz";
+      hash = "sha256-KeoItPEyXpcFzcGfZzgELAxzEGK3abKc9Xc6a7M/5G8=";
     }
     {
       name = "license.txt.gz";
@@ -57,26 +46,7 @@ let
     }
     {
       name = "SOOPStreamer.exe.gz";
-      hash = "sha256-seGzqWrwBeca1Vnn0grebP0t40lryRIm6CT/Dwb6e9E=";
-    }
-  ];
-
-  runtimeFiles = [
-    {
-      name = "mfc71.dll.gz";
-      hash = "sha256-eitkJL8irvfLHXXhUnmhu1mAlefldXp982jPT7cyqNg=";
-    }
-    {
-      name = "mfc71u.dll.gz";
-      hash = "sha256-7XtDvpYe36zDMw7VhoKJrz6zIuCz9VuKgwcvLTp4dH0=";
-    }
-    {
-      name = "msvcp71.dll.gz";
-      hash = "sha256-IjP8mqx4zbT3hwlI1WwT0YQQPcEd+Tba69DS4tLTSjw=";
-    }
-    {
-      name = "msvcr71.dll.gz";
-      hash = "sha256-BxhoN04ZIxPRUxwYCMt/ph5G9Hzbs/tFpYJJzJmN1Cg=";
+      hash = "sha256-n7yP9tvfAUwfNEk5eutfhsb/NkoR1FY5Dzz/pSYKehg=";
     }
   ];
 
@@ -182,12 +152,15 @@ stdenvNoCC.mkDerivation {
   nativeCheckInputs = [
     bashNonInteractive
     shellcheck
+    python3
+    iproute2
   ];
   doCheck = true;
   checkPhase = ''
     runHook preCheck
     bash -n ${./soop-grid.sh}
     shellcheck ${./soop-grid.sh}
+    python3 ${./tests/socket-status.py} bash ${./soop-grid.sh}
     runHook postCheck
   '';
 
@@ -199,18 +172,16 @@ stdenvNoCC.mkDerivation {
     install -d \
       "$out/bin" \
       "$out/share/licenses/soop-grid" \
-      "$out/share/soop-grid/payload" \
-      "$out/share/soop-grid/runtime"
+      "$out/share/soop-grid/payload"
 
     ${unpackFiles "payload" appFiles}
-    ${unpackFiles "runtime" runtimeFiles}
 
-    chmod 0444 "$out/share/soop-grid/payload/"* "$out/share/soop-grid/runtime/"*
+    chmod 0444 "$out/share/soop-grid/payload/"*
     install -m 0444 "$out/share/soop-grid/payload/license.txt" \
       "$out/share/licenses/soop-grid/license.txt"
 
-    wrestool -x --type=14 --name=128 \
-      "$out/share/soop-grid/payload/SOOPPackage.exe" > "$TMPDIR/soop-grid.ico"
+    wrestool -x --type=14 --name=IDI_ICON1 \
+      "$out/share/soop-grid/payload/SOOPLiveLauncher.exe" > "$TMPDIR/soop-grid.ico"
     ${installIcons}
 
     install -m 0555 ${./soop-grid.sh} "$out/bin/soop-grid"
@@ -223,8 +194,7 @@ stdenvNoCC.mkDerivation {
     wrapProgram "$out/bin/soop-grid" \
       --prefix PATH : "${runtimePath}" \
       --set SOOP_GRID_PAYLOAD_DIR "$out/share/soop-grid/payload" \
-      --set SOOP_GRID_RUNTIME_DIR "$out/share/soop-grid/runtime" \
-      --set SOOP_GRID_SEED_VERSION "${upstream.packageVersion}-${upstream.streamerVersion}"
+      --set SOOP_GRID_SEED_VERSION "${upstream.launcherVersion}-${upstream.streamerVersion}-${builtins.hashString "sha256" (builtins.toJSON appFiles)}"
   '';
 
   passthru = {
